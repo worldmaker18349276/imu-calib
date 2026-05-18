@@ -59,14 +59,17 @@ Omega_sign = np.array([
     [1,  1, -1,  0],
 ])
 
-def Qright(phi):
+def Omega(phi):
     """
-    assume phi is small,
-    Qright(phi) @ q = quat_mul(q, rvec_to_quat(phi))
+    for small phi,
+    quat_mul(q, rvec_to_quat(phi)) = q + Omega(phi) @ q
     """
-    return phi[..., Omega_indices] * (Omega_sign / 2) + np.eye(4)
+    return phi[..., Omega_indices] * (Omega_sign / 2)
 
 def Rmat(q):
+    """
+    Rmat(q1) @ Rmat(q2) = Rmat(quat_mul(q1, q2))
+    """
     w = q[0]
     v = q[1:]
     return (w**2 - v.dot(v)) * np.eye(3) + 2 * v[:,None] * v[None,:] + 2 * w * skew(v)

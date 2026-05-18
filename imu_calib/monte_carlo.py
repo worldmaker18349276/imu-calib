@@ -86,7 +86,7 @@ def monte_carlo_cycle(N_samples, dt, theta_acc, theta_gyr, randomized_rotations 
     times, gyrs_true, accs_true, standstill_flags = generate_ideal_imu_measurements_for_rotation_sequence(
             roll, yaw, pitch, yaw_increment, N_samples, dt, randomized_rotations)
 
-    # p_true, q_true, v_true = imu_calib.evaluate_states(accs_true, gyrs_true, dt, p0=None, q0=euler_to_quat(roll, pitch, yaw), v0=None)
+    # p_true, q_true, v_true = imu_calib.evaluate_states(accs_true, gyrs_true, dt, g, p0=None, q0=euler_to_quat(roll, pitch, yaw), v0=None)
 
     gyrs, accs = corrupt_imu_measurements(theta_acc, theta_gyr, gyrs_true, accs_true, gyr_noise_std, acc_noise_std)
 

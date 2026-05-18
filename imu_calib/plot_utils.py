@@ -9,10 +9,8 @@ def plot_imu_data_and_standstill(imu_data, standstill_flags, times):
     fig, ax = plt.subplots(2, 1, figsize=(16, 9))
     ax[0].plot(times, imu_data[:, 0:3])
     ax[0].legend(["ax", "ay", "az"])
-
-    ax[1].plot(times, imu_data[:, 3], label = "wx")
-    ax[1].plot(times, imu_data[:, 4], label = "wx")
-    ax[1].plot(times, imu_data[:, 5], label = "wx")
+    ax[1].plot(times, imu_data[:, 3:6])
+    ax[1].legend(["wx", "wy", "wz"])
 
     standstill_changes = np.hstack((0, np.diff(standstill_flags)))
     motion_starts = np.where(standstill_changes == -1)
@@ -22,8 +20,6 @@ def plot_imu_data_and_standstill(imu_data, standstill_flags, times):
     for xmin, xmax in motion_start_end_idxs:
         ax[0].axvspan(times[xmin], times[xmax], color='green', alpha=0.2)
         ax[1].axvspan(times[xmin], times[xmax], color='green', alpha=0.2)
-
-    ax[1].legend()
 
     plt.show()
 
@@ -35,10 +31,10 @@ def plot_accelerations_before_and_after(accs, accs_calibrated, times):
     ax.set(xlabel='$time, s$', ylabel='$m/s^2$', ylim = [8.81, 10.81])
     plt.show()
 
-def plot_gyro_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt, times, compare=None):
-    p, q, v = imu_calib.evaluate_states(accs, gyrs, dt)
-    p_, q_, v_ = imu_calib.evaluate_states(accs_calibrated, gyrs_calibrated, dt)
-    p0, q0, v0 = imu_calib.evaluate_states(compare[:, 0:3], compare[:, 3:6], dt) if compare is not None else (None, None, None)
+def plot_gyro_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt, g, times, compare=None):
+    p, q, v = imu_calib.evaluate_states(accs, gyrs, dt, g)
+    p_, q_, v_ = imu_calib.evaluate_states(accs_calibrated, gyrs_calibrated, dt, g)
+    p0, q0, v0 = imu_calib.evaluate_states(compare[:, 0:3], compare[:, 3:6], dt, g) if compare is not None else (None, None, None)
 
     fig, ax = plt.subplots(3, 2, figsize=(16, 9))
     ax[0, 0].plot(times, q[:, 1], label = 'uncalibrated orientation')

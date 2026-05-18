@@ -3,12 +3,10 @@ import scipy.optimize as optimize
 from imu_calib.utils import *
 
 
-g = 9.81
-
 def sensor_error_model(theta):
     KX, KY, KZ, NOX, NOY, NOZ, BX, BY, BZ = theta
-    M = np.array([[1.0 + KX, NOY, NOZ], 
-                  [0.0, 1.0 + KY, NOX], 
+    M = np.array([[1.0 + KX, -NOZ, NOY], 
+                  [0.0, 1.0 + KY, -NOX], 
                   [0.0, 0.0, 1.0 + KZ]])
     B = np.array([BX, BY, BZ])
     
@@ -19,17 +17,28 @@ def misalignment(epsilon):
 
 def distort(theta, v):
     # v' = (I + skew(E)) @ ((I + diag(S) + tri(NO)) @ v + B)
-    KX, KY, KZ, NOX, NOY, NOZ, BX, BY, BZ = theta[0:9]
-    M = np.array([[1.0 + KX, NOY, NOZ], 
-                  [0.0, 1.0 + KY, NOX], 
-                  [0.0, 0.0, 1.0 + KZ]])
-    B = np.array([BX, BY, BZ])
-    R = np.eye(3)
-    if len(theta) == 12:
-        R += skew(theta[9:12])
+    M, B = sensor_error_model(theta[0:9])
+    R = misalignment(theta[9:12]) if len(theta) == 12 else np.eye(3)
     return R @ (M @ v + B)
 
-def make_residual_acc(accs):
+def explain(theta, name):
+    KX, KY, KZ, NOX, NOY, NOZ, BX, BY, BZ = theta[0:9]
+    RX, RY, RZ = NOX / (1 + KZ), NOY / (1 + KZ), NOZ / (1 + KY)
+    P = 180 / np.pi
+    res = f"Your sensor {name} are:\n"
+    if len(theta) == 12:
+        EX, EY, EZ = theta[9:12]
+        res += (
+            f"  mis-aligned by    {EX*P:+8.4f} {EY*P:+8.4f} {EZ*P:+8.4f} deg;\n"
+        )
+    res += (
+            f"  non-orthogonal by {RX*P:+8.4f} {RY*P:+8.4f} {RZ*P:+8.4f} deg;\n"
+            f"  enlarged by       {KX*100:+8.4f} {KY*100:+8.4f} {KZ*100:+8.4f} %;\n"
+            f"  offset by         {BX*100:+8.4f} {BY*100:+8.4f} {BZ*100:+8.4f} cent unit"
+    )
+    return res
+
+def make_residual_acc(accs, g):
     '''
     Accelerometer cost function according to equation (10) in the paper
     '''
@@ -65,15 +74,20 @@ def make_residual_gyr(gyrs, accs, dt, standstill_flags):
         R = np.linalg.inv(misalignment(theta[-3:]))
 
         z = np.zeros(len(motion_start_end_idxs))
-        for i, idx_motion_start_end in enumerate(motion_start_end_idxs):
-            ws = gyrs[idx_motion_start_end[0]:idx_motion_start_end[1],:]
-            ws_b = ws @ (R.T @ C.T) - B[None, :] @ C.T
-            dt_ = dt if np.isscalar(dt) else dt[idx_motion_start_end[0]:idx_motion_start_end[1], None]
-            Qws = Qright(ws_b * dt_)
+        for i, idxs in enumerate(motion_start_end_idxs):
+            dt_ = np.repeat(dt, idxs[1]-idxs[0]) if np.isscalar(dt) else dt[idxs[0]:idxs[1]]
+            ws = gyrs[idxs[0]:idxs[1],:]
+            ws = ws @ (R.T @ C.T) - B[None, :] @ C.T
+            Ws = Omega(ws)
 
             q = np.array([1.0, 0.0, 0.0, 0.0])
-            for Qw in Qws:
-                q = Qw @ q
+            for j in range(len(Ws))[:-1]:
+                # RK4
+                k1 = Ws[j] @ q
+                k2 = (Ws[j] + Ws[j+1])/2 @ (q + k1 * dt_[j]/2)
+                k3 = (Ws[j] + Ws[j+1])/2 @ (q + k2 * dt_[j]/2)
+                k4 = Ws[j+1] @ (q + k3 * dt_[j])
+                q = q + (k1 + k2*2 + k3*2 + k4)/6 * dt_[j]
                 q /= np.linalg.norm(q)
 
             z[i] = np.linalg.norm(Rmat(q) @ standstill_up[i+1] - standstill_up[i])
@@ -82,30 +96,29 @@ def make_residual_gyr(gyrs, accs, dt, standstill_flags):
 
     return residual_func
 
-def generate_standstill_flags(imu_data, standstill_gyr_threshold = 0.13):
+def generate_standstill_flags(imu_data, motion_margn_frame = 60, standstill_gyr_threshold = 0.13):
     standstill = np.zeros(len(imu_data), dtype=np.int8)
-    MARGIN = 60
-    counter_after_motion = MARGIN
+    counter_after_motion = motion_margn_frame
     # generate standstill flags
     for i, m in enumerate(imu_data):
         if np.linalg.norm(m[3:6]) < standstill_gyr_threshold:
             counter_after_motion += 1
-            if counter_after_motion > MARGIN:
+            if counter_after_motion > motion_margn_frame:
                 standstill[i] = 1
         else:
             standstill[i] = 0
-            standstill[:i][-MARGIN:] = 0
+            standstill[:i][-motion_margn_frame:] = 0
             counter_after_motion = 0
 
     return standstill
 
-def calib_acc(accs, standstill_flags):
+def calib_acc(accs, standstill_flags, g):
     '''
     Find calibration parameters according to cost function from eq. (10)
     For details see make_residual_acc function inside cost_functions.py
     '''
     initial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    res = optimize.least_squares(make_residual_acc(accs[standstill_flags > 0]),
+    res = optimize.least_squares(make_residual_acc(accs[standstill_flags > 0], g),
                                  initial,
                                  max_nfev = 25,
                                  x_scale = [10., 10., 10., 10., 10., 10., 1., 1., 1.],
@@ -122,7 +135,7 @@ def calib_gyr(gyrs, accs, dt, standstill_flags):
     For details see make_residual_gyr function inside cost_functions.py
     '''
     intial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    intial[-6:-3] = np.mean(gyrs[0:100,:], axis=0)
+    intial[-6:-3] = np.mean(gyrs[standstill_flags > 0,:], axis=0)
 
     res = optimize.least_squares(
             make_residual_gyr(gyrs, accs, dt, standstill_flags),
@@ -159,7 +172,7 @@ def correct_gyr(gyrs, theta_gyr):
     # w' = (I + X(E)) @ ((I + diag(S) + tri(NO)) @ w + B)
     return gyrs @ (R.T @ C.T) - B[None, :] @ C.T
 
-def evaluate_states(accs, gyrs, dt, p0=None, q0=None, v0=None):
+def evaluate_states(accs, gyrs, dt, g, p0=None, q0=None, v0=None):
     p0 = p0 if p0 is not None else np.array([0.0, 0.0, 0.0])
     q0 = q0 if q0 is not None else np.array([1.0, 0.0, 0.0, 0.0])
     v0 = v0 if v0 is not None else np.array([0.0, 0.0, 0.0])
@@ -178,12 +191,20 @@ def evaluate_states(accs, gyrs, dt, p0=None, q0=None, v0=None):
     acc_g = acc_g / np.linalg.norm(acc_g) * g
 
     dt = np.repeat(dt, N) if np.isscalar(dt) else dt
-    Qws = Qright(gyrs * dt[:, None])
-    for i in range(1, N):
-        qs[i, :] = Qws[i-1] @ qs[i-1, :]
-        qs[i, :] /= np.linalg.norm(qs[i, :])
-        R_i = Rmat(qs[i, :])
-        ps[i, :] = ps[i-1, :] + vs[i-1, :] * dt[i] + (R_i @ accs[i, :] - acc_g) * 0.5 * dt[i]**2
-        vs[i, :] = vs[i-1, :] + (R_i @ accs[i, :] - acc_g) * dt[i]
+    Ws = Omega(gyrs)
+
+    for j in range(len(Ws))[:-1]:
+        # RK4
+        k1 = Ws[j] @ qs[j]
+        k2 = (Ws[j] + Ws[j+1])/2 @ (qs[j] + k1 * dt[j]/2)
+        k3 = (Ws[j] + Ws[j+1])/2 @ (qs[j] + k2 * dt[j]/2)
+        k4 = Ws[j+1] @ (qs[j] + k3 * dt[j])
+        qs[j+1] = qs[j] + (k1 + k2*2 + k3*2 + k4)/6 * dt[j]
+        qs[j+1] /= np.linalg.norm(qs[j+1])
+
+        R0 = Rmat(qs[j])
+        R1 = Rmat(qs[j+1])
+        vs[j+1] = vs[j] + ((R0 @ accs[j] + R1 @ accs[j+1])/2 - acc_g) * dt[j]
+        ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j] + (R0 @ accs[j] - acc_g) * 0.5 * dt[j]**2
 
     return ps, qs, vs
