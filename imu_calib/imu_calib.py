@@ -10,12 +10,24 @@ def sensor_error_model(theta):
     M = np.array([[1.0 + KX, NOY, NOZ], 
                   [0.0, 1.0 + KY, NOX], 
                   [0.0, 0.0, 1.0 + KZ]])
-    b = np.array([BX, BY, BZ])
+    B = np.array([BX, BY, BZ])
     
-    return M, b
+    return M, B
 
 def misalignment(epsilon):
     return np.eye(3) + skew(epsilon)
+
+def distort(theta, v):
+    # v' = (I + skew(E)) @ ((I + diag(S) + tri(NO)) @ v + B)
+    KX, KY, KZ, NOX, NOY, NOZ, BX, BY, BZ = theta[0:9]
+    M = np.array([[1.0 + KX, NOY, NOZ], 
+                  [0.0, 1.0 + KY, NOX], 
+                  [0.0, 0.0, 1.0 + KZ]])
+    B = np.array([BX, BY, BZ])
+    R = np.eye(3)
+    if len(theta) == 12:
+        R += skew(theta[9:12])
+    return R @ (M @ v + B)
 
 def make_residual_acc(accs):
     '''
