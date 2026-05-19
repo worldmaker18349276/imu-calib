@@ -23,16 +23,15 @@ def distort(theta, v):
 
 def explain(theta, name):
     KX, KY, KZ, NOX, NOY, NOZ, BX, BY, BZ = theta[0:9]
-    RX, RY, RZ = NOX / (1 + KZ), NOY / (1 + KZ), NOZ / (1 + KY)
-    P = 180 / np.pi
+    RD = 180 / np.pi
     res = f"Your sensor {name} are:\n"
     if len(theta) == 12:
         EX, EY, EZ = theta[9:12]
         res += (
-            f"  mis-aligned by    {EX*P:+8.4f} {EY*P:+8.4f} {EZ*P:+8.4f} deg;\n"
+            f"  mis-aligned by    {EX*RD:+8.4f} {EY*RD:+8.4f} {EZ*RD:+8.4f} deg;\n"
         )
     res += (
-            f"  non-orthogonal by {RX*P:+8.4f} {RY*P:+8.4f} {RZ*P:+8.4f} deg;\n"
+            f"  non-orthogonal by {NOX*RD:+8.4f} {NOY*RD:+8.4f} {NOZ*RD:+8.4f} deg;\n"
             f"  enlarged by       {KX*100:+8.4f} {KY*100:+8.4f} {KZ*100:+8.4f} %;\n"
             f"  offset by         {BX*100:+8.4f} {BY*100:+8.4f} {BZ*100:+8.4f} cent unit"
     )

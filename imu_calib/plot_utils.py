@@ -105,12 +105,20 @@ def plot_theta(theta_acc, theta_gyr):
         y_ = imu_calib.distort(theta, y)
         z_ = imu_calib.distort(theta, z)
 
+        # only consider bias and misalign, so that nonorth and scale are easy to see
+        theta2 = np.copy(theta)
+        theta2[0:6] = 0
+        o2 = imu_calib.distort(theta2, o)
+        x2 = imu_calib.distort(theta2, x)
+        y2 = imu_calib.distort(theta2, y)
+        z2 = imu_calib.distort(theta2, z)
+
         # calibrated
         for v, color in zip([x, y, z], ax_colors):
             draw_axis(ax, o, v, color, 0.5)
 
-        for v, color in zip([x, y, z], ax_colors):
-            draw_axis(ax, o_ + o, o_ + v, color, 0.2)
+        for v2, color in zip([x2, y2, z2], ax_colors):
+            draw_axis(ax, o2, v2, color, 0.2)
 
         # uncalibrated
         for v_, color in zip([x_, y_, z_], ax_colors):
