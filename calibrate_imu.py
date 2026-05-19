@@ -37,18 +37,20 @@ def main():
 
     # find accelerometer calibration parameters and calibrate accel measurements
     time_start = time.time()
-    theta_acc = imu_calib.calib_acc(accs, standstill_flag, g)
+    theta_acc, cov_theta_acc = imu_calib.calib_acc(accs, standstill_flag, g)
     time_end = time.time()
 
     print(f"ACC calibration done in: {time_end - time_start:.1f} s")
     print(imu_calib.explain(theta_acc, "ACC"))
     accs_calibrated = imu_calib.correct_acc(accs, theta_acc)
     if args.verbose:
+        plot_utils.plot_matrix("covariance of theta_acc", cov_theta_acc, ["sx", "sy", "sz", "ox", "oy", "oz", "bx", "by", "bz"])
+
         plot_utils.plot_accelerations_before_and_after(accs, accs_calibrated, times)
 
     # find gyroscope calibration parameters
     time_start = time.time()
-    theta_gyr = imu_calib.calib_gyr(gyrs, accs_calibrated, dt, standstill_flag)
+    theta_gyr, cov_theta_gyr = imu_calib.calib_gyr(gyrs, accs_calibrated, dt, standstill_flag)
     time_end = time.time()
 
     print(f"GYR calibration done in: {time_end - time_start:.1f} s")
@@ -56,6 +58,8 @@ def main():
     gyrs_calibrated = imu_calib.correct_gyr(gyrs, theta_gyr)
 
     if args.verbose:
+        plot_utils.plot_matrix("covariance of theta_gyr", cov_theta_gyr, ["sx", "sy", "sz", "ox", "oy", "oz", "bx", "by", "bz", "ex", "ey", "ez"])
+
         true_data = None
         if args.imu_true:
             true_data = np.genfromtxt(args.imu_true, delimiter=' ')

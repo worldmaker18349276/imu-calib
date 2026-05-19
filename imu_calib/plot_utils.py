@@ -5,6 +5,17 @@ from mpl_toolkits.mplot3d import Axes3D
 from imu_calib import imu_calib
 
 
+def plot_matrix(title, M, labels):
+    fig, ax = plt.subplots()
+    plt.title(title)
+    im = ax.imshow(M)
+    ax.set_xticks(np.arange(len(labels)))
+    ax.set_yticks(np.arange(len(labels)))
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels(labels)
+    plt.colorbar(im)
+    plt.show()
+
 def plot_imu_data_and_standstill(imu_data, standstill_flags, times):
     fig, ax = plt.subplots(2, 1, figsize=(16, 9))
     ax[0].plot(times, imu_data[:, 0:3])

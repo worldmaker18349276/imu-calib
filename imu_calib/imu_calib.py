@@ -95,6 +95,21 @@ def make_residual_gyr(gyrs, accs, dt, standstill_flags):
 
     return residual_func
 
+def compute_jacobian(residual, x, eps=1.0e-8):
+    r = residual(x)
+    J = np.zeros((len(r), len(x)))
+    for i, e in enumerate(np.eye(len(x))):
+        r_ = residual(x + e * eps)
+        J[:, i] = (r_ - r) / eps
+    return J
+
+def compute_covariance(residual, x, eps=1.0e-8):
+    r = residual(x)
+    J = compute_jacobian(residual, x, eps=eps)
+    sigma = 1.4826 * np.median(np.abs(r))
+    cov = sigma**2 * np.linalg.pinv(J.T @ J)
+    return cov
+
 def generate_standstill_flags(imu_data, motion_margn_frame = 60, standstill_gyr_threshold = 0.13):
     standstill = np.zeros(len(imu_data), dtype=np.int8)
     counter_after_motion = motion_margn_frame
@@ -117,7 +132,8 @@ def calib_acc(accs, standstill_flags, g):
     For details see make_residual_acc function inside cost_functions.py
     '''
     initial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    res = optimize.least_squares(make_residual_acc(accs[standstill_flags > 0], g),
+    residual = make_residual_acc(accs[standstill_flags > 0], g)
+    res = optimize.least_squares(residual,
                                  initial,
                                  max_nfev = 25,
                                  x_scale = [10., 10., 10., 10., 10., 10., 1., 1., 1.],
@@ -126,7 +142,9 @@ def calib_acc(accs, standstill_flags, g):
                                        (-0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -1.1, -1.1, -1.1),
                                        (0.11,   0.11,  0.11,  0.11,  0.11,  0.11,  1.1,  1.1,  1.1)],
         )
-    return res.x
+
+    cov = compute_covariance(residual, res.x)
+    return res.x, cov
 
 def calib_gyr(gyrs, accs, dt, standstill_flags):
     '''
@@ -135,9 +153,9 @@ def calib_gyr(gyrs, accs, dt, standstill_flags):
     '''
     intial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     intial[-6:-3] = np.mean(gyrs[standstill_flags > 0,:], axis=0)
-
+    residual = make_residual_gyr(gyrs, accs, dt, standstill_flags)
     res = optimize.least_squares(
-            make_residual_gyr(gyrs, accs, dt, standstill_flags),
+            residual,
             intial, 
             max_nfev = 50,
             x_scale = [10., 10., 10., 10., 10., 10., 10., 10., 10., 10, 10, 10],
@@ -146,7 +164,8 @@ def calib_gyr(gyrs, accs, dt, standstill_flags):
                     (-0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11),
                     (0.11,   0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11)],
         )
-    return res.x
+    cov = compute_covariance(residual, res.x)
+    return res.x, cov
 
 def correct_acc(accs, theta_acc):
     '''
