@@ -5,17 +5,6 @@ from mpl_toolkits.mplot3d import Axes3D
 from imu_calib import imu_calib
 
 
-def plot_matrix(title, M, labels):
-    fig, ax = plt.subplots()
-    plt.title(title)
-    im = ax.imshow(M)
-    ax.set_xticks(np.arange(len(labels)))
-    ax.set_yticks(np.arange(len(labels)))
-    ax.set_xticklabels(labels)
-    ax.set_yticklabels(labels)
-    plt.colorbar(im)
-    plt.show()
-
 def plot_imu_data_and_standstill(imu_data, standstill_flags, times):
     fig, ax = plt.subplots(2, 1, figsize=(16, 9))
     ax[0].plot(times, imu_data[:, 0:3])
@@ -93,17 +82,17 @@ def plot_gyro_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt,
     plt.tight_layout()
     plt.show()
 
-def plot_theta(theta_acc, theta_gyr):
+def plot_theta(theta_acc, theta_gyr, cov_theta_acc, cov_theta_gyr):
     def draw_axis(ax, v0, v1, color, alpha):
         ax.plot([v0[0], v1[0]], [v0[1], v1[1]], [v0[2], v1[2]], color=color, alpha=alpha)
 
     ax_colors = ['red', 'green', 'blue']
 
-    fig = plt.figure(figsize=(14, 6))
+    fig = plt.figure(figsize=(10, 8))
     fig.suptitle('IMU Axis Calibration')
 
     for idx, (theta, title) in enumerate([(theta_acc, 'Accelerometer'), (theta_gyr, 'Gyroscope')]):
-        ax = fig.add_subplot(1, 2, idx+1, projection='3d')
+        ax = fig.add_subplot(2, 2, idx+1, projection='3d')
         ax.set_title(title)
         
         o = np.array([0., 0., 0.])
@@ -137,6 +126,20 @@ def plot_theta(theta_acc, theta_gyr):
 
         ax.set_xlim(-1, 1); ax.set_ylim(-1, 1); ax.set_zlim(-1, 1)
         ax.view_init(elev=20, azim=30)
+
+    covs = [
+        (cov_theta_acc, ["sx", "sy", "sz", "ox", "oy", "oz", "bx", "by", "bz"]),
+        (cov_theta_gyr, ["sx", "sy", "sz", "ox", "oy", "oz", "bx", "by", "bz", "ex", "ey", "ez"]),
+    ]
+    for idx, (cov, labels) in enumerate(covs):
+        ax = fig.add_subplot(2, 2, idx+3)
+        v = np.abs(cov).max()
+        im = ax.imshow(cov, cmap="seismic", vmin=-v, vmax=v)
+        ax.set_xticks(np.arange(len(labels)))
+        ax.set_yticks(np.arange(len(labels)))
+        ax.set_xticklabels(labels)
+        ax.set_yticklabels(labels)
+        plt.colorbar(im)
 
     plt.tight_layout()
     plt.show()

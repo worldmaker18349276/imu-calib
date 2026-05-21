@@ -37,19 +37,36 @@ def explain(theta, name):
     )
     return res
 
-def make_residual_acc(accs, g):
+def make_residual_acc(accs, g, standstill_flags):
     '''
     Accelerometer cost function according to equation (10) in the paper
     '''
-    def residual_func(theta):
-        M, B = sensor_error_model(theta[0:9])
+    standstill_changes = np.hstack((0, np.diff(standstill_flags)))
+    motion_starts = np.where(standstill_changes == -1)
+    motion_ends = np.where(standstill_changes == 1)
+    motion_start_end_idxs = np.array([[max(0, s - 5), e + 5] for s, e in zip(*motion_starts, *motion_ends)], dtype=int)
+    standstill_start_end_idxs = np.array([0, *motion_start_end_idxs.flatten(), len(accs)]).reshape((-1, 2))
+    
+    standstill_up = []
+    for idxs in standstill_start_end_idxs:
+        acc = np.mean(accs[idxs[0]:idxs[1], :], axis=0)
+        standstill_up.append(acc / np.linalg.norm(acc))
+
+    def residual_func(theta_up):
+        M, B = sensor_error_model(theta_up[0:9])
         C = np.linalg.inv(M)
-        accs_ = (accs - B[None, :]) @ C.T
-        z = accs_ * (g / np.sqrt(np.sum(accs_**2, axis=1, keepdims=True)) - 1)
-        
+        z = np.zeros((sum(standstill_flags > 0), 3))
+        j = 0
+        for idxs, up in zip(standstill_start_end_idxs, theta_up[9:].reshape((-1, 3))):
+            accs_ = (accs[idxs[0]:idxs[1], :] - B[None, :]) @ C.T
+            g_up = up * (g / np.linalg.norm(up))
+            j_next = j + idxs[1] - idxs[0]
+            z[j:j_next, :] = g_up - accs_
+            j = j_next
         return z.flatten()
 
-    return residual_func
+    initial = np.concatenate([np.zeros((9,)), *standstill_up])
+    return initial, residual_func
 
 def make_residual_gyr(gyrs, accs, dt, standstill_flags):
     '''
@@ -72,7 +89,7 @@ def make_residual_gyr(gyrs, accs, dt, standstill_flags):
         C = np.linalg.inv(M)
         R = np.linalg.inv(misalignment(theta[-3:]))
 
-        z = np.zeros(len(motion_start_end_idxs))
+        z = np.zeros((len(motion_start_end_idxs), 3))
         for i, idxs in enumerate(motion_start_end_idxs):
             dt_ = np.repeat(dt, idxs[1]-idxs[0]) if np.isscalar(dt) else dt[idxs[0]:idxs[1]]
             ws = gyrs[idxs[0]:idxs[1],:]
@@ -89,11 +106,14 @@ def make_residual_gyr(gyrs, accs, dt, standstill_flags):
                 q = q + (k1 + k2*2 + k3*2 + k4)/6 * dt_[j]
                 q /= np.linalg.norm(q)
 
-            z[i] = np.linalg.norm(Rmat(q) @ standstill_up[i+1] - standstill_up[i])
+            z[i, :] = Rmat(q) @ standstill_up[i+1] - standstill_up[i]
 
         return z.flatten()
 
-    return residual_func
+    initial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    initial[-6:-3] = np.mean(gyrs[standstill_flags > 0,:], axis=0)
+
+    return initial, residual_func
 
 def compute_jacobian(residual, x, eps=1.0e-8):
     r = residual(x)
@@ -131,32 +151,30 @@ def calib_acc(accs, standstill_flags, g):
     Find calibration parameters according to cost function from eq. (10)
     For details see make_residual_acc function inside cost_functions.py
     '''
-    initial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    residual = make_residual_acc(accs[standstill_flags > 0], g)
+    initial, residual = make_residual_acc(accs, g, standstill_flags)
+    M = initial.shape[0] - 9
     res = optimize.least_squares(residual,
                                  initial,
                                  max_nfev = 25,
-                                 x_scale = [10., 10., 10., 10., 10., 10., 1., 1., 1.],
+                                 x_scale = [10., 10., 10., 10., 10., 10., 1., 1., 1., *[1.]*M],
                                  method='trf', loss='soft_l1',
                                  bounds = [
-                                       (-0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -1.1, -1.1, -1.1),
-                                       (0.11,   0.11,  0.11,  0.11,  0.11,  0.11,  1.1,  1.1,  1.1)],
+                                       (-0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -1.1, -1.1, -1.1, *[-1.]*M),
+                                       (0.11,   0.11,  0.11,  0.11,  0.11,  0.11,  1.1,  1.1,  1.1,  *[1.]*M)],
         )
 
     cov = compute_covariance(residual, res.x)
-    return res.x, cov
+    return res.x, cov[:9, :9]
 
 def calib_gyr(gyrs, accs, dt, standstill_flags):
     '''
     Find calibration parameters according to cost function from eq. (16)
     For details see make_residual_gyr function inside cost_functions.py
     '''
-    intial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    intial[-6:-3] = np.mean(gyrs[standstill_flags > 0,:], axis=0)
-    residual = make_residual_gyr(gyrs, accs, dt, standstill_flags)
+    initial, residual = make_residual_gyr(gyrs, accs, dt, standstill_flags)
     res = optimize.least_squares(
             residual,
-            intial, 
+            initial, 
             max_nfev = 50,
             x_scale = [10., 10., 10., 10., 10., 10., 10., 10., 10., 10, 10, 10],
             method='trf', loss='soft_l1',

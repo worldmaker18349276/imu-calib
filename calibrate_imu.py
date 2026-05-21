@@ -44,8 +44,6 @@ def main():
     print(imu_calib.explain(theta_acc, "ACC"))
     accs_calibrated = imu_calib.correct_acc(accs, theta_acc)
     if args.verbose:
-        plot_utils.plot_matrix("covariance of theta_acc", cov_theta_acc, ["sx", "sy", "sz", "ox", "oy", "oz", "bx", "by", "bz"])
-
         plot_utils.plot_accelerations_before_and_after(accs, accs_calibrated, times)
 
     # find gyroscope calibration parameters
@@ -58,14 +56,12 @@ def main():
     gyrs_calibrated = imu_calib.correct_gyr(gyrs, theta_gyr)
 
     if args.verbose:
-        plot_utils.plot_matrix("covariance of theta_gyr", cov_theta_gyr, ["sx", "sy", "sz", "ox", "oy", "oz", "bx", "by", "bz", "ex", "ey", "ez"])
-
         true_data = None
         if args.imu_true:
             true_data = np.genfromtxt(args.imu_true, delimiter=' ')
         plot_utils.plot_gyro_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt, g, times, compare=true_data)
 
-        plot_utils.plot_theta(theta_acc, theta_gyr)
+        plot_utils.plot_theta(theta_acc, theta_gyr, cov_theta_acc, cov_theta_gyr)
 
     calib_path = args.calib if args.calib is not None else Path(args.imu).with_suffix(".json")
     print("Write to file: ", calib_path)
