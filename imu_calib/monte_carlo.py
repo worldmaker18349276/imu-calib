@@ -64,10 +64,9 @@ def corrupt_imu_measurements(theta_acc, theta_gyr, gyrs, accs, gyr_noise_std = 0
     gyrs = np.copy(gyrs)
     accs = np.copy(accs)
     # according to equations (1), (2), (5) and (6) in the paper
-    Ma, Ba = imu_calib.sensor_error_model(theta_acc[0:9])
-    Mg, Bg = imu_calib.sensor_error_model(theta_gyr[0:9])
+    Ma, Ba, _ = imu_calib.sensor_error_model(theta_acc)
+    Mg, Bg, Rga = imu_calib.sensor_error_model(theta_gyr)
 
-    Rga = imu_calib.misalignment(theta_gyr[-3:])
     for i, _ in enumerate(gyrs):
         gyrs[i] = Rga @ (Mg @ gyrs[i] + Bg + np.random.normal(0, gyr_noise_std, 3))
         accs[i] = Ma @ (accs[i]) + Ba + np.random.normal(0, acc_noise_std, 3)

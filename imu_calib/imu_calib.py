@@ -4,21 +4,18 @@ from imu_calib.utils import *
 
 
 def sensor_error_model(theta):
-    KX, KY, KZ, OX, OY, OZ, BX, BY, BZ = theta
+    KX, KY, KZ = theta[0:3]
+    OX, OY, OZ = theta[3:6]
     M = np.array([[1.0 + KX,  OZ,  OY],
                   [0.0, 1.0 + KY,  OX],
                   [0.0, 0.0, 1.0 + KZ]])
-    B = np.array([BX, BY, BZ])
-    
-    return M, B
-
-def misalignment(epsilon):
-    return np.eye(3) + skew(epsilon)
+    B = np.array(theta[6:9])
+    R = (np.eye(3) + skew(theta[9:12])) if len(theta) >= 12 else np.eye(3)
+    return M, B, R
 
 def distort(theta, v):
-    # v' = (I + skew(E)) @ ((I + diag(S) + tri(NO)) @ v + B)
-    M, B = sensor_error_model(theta[0:9])
-    R = misalignment(theta[9:12]) if len(theta) == 12 else np.eye(3)
+    # v' = (I + skew(E)) @ ((I + diag(K) + tri(O)) @ v + B)
+    M, B, R = sensor_error_model(theta)
     return R @ (M @ v + B)
 
 def explain(theta, name):
@@ -47,15 +44,13 @@ def make_residual_acc(accs, g, standstill_indices):
         standstill_up.append(acc / np.linalg.norm(acc))
 
     def residual_func(theta_up):
-        M, B = sensor_error_model(theta_up[0:9])
-        C = np.linalg.inv(M)
+        M, B, _ = sensor_error_model(theta_up[0:9])
         z = np.zeros(((standstill_indices[:, 1] - standstill_indices[:, 0]).sum(), 3))
         j = 0
         for idxs, up in zip(standstill_indices, theta_up[9:].reshape((-1, 3))):
-            accs_ = (accs[idxs[0]:idxs[1], :] - B[None, :]) @ C.T
-            g_up = up * (g / np.linalg.norm(up))
             j_next = j + idxs[1] - idxs[0]
-            z[j:j_next, :] = g_up - accs_
+            g_up = up * (g / np.linalg.norm(up))
+            z[j:j_next, :] = (M @ g_up + B)[None, :] - accs[idxs[0]:idxs[1], :]
             j = j_next
         return z.flatten()
 
@@ -74,25 +69,26 @@ def make_residual_gyr(gyrs, accs, dt, standstill_indices):
     motion_indices = standstill_indices.flatten()[1:-1].reshape((-1, 2))
 
     def residual_func(theta):
-        M, B = sensor_error_model(theta[0:9])
+        M, B, R = sensor_error_model(theta)
         C = np.linalg.inv(M)
-        R = np.linalg.inv(misalignment(theta[-3:]))
+        R = np.linalg.inv(R)
 
         z = np.zeros((motion_indices.shape[0], 3))
         for i, idxs in enumerate(motion_indices):
             dt_ = dt[idxs[0]:idxs[1]]
             ws = gyrs[idxs[0]:idxs[1],:]
-            ws = ws @ (R.T @ C.T) - B[None, :] @ C.T
+            ws = ((C @ R) @ ws.T - (C @ B)[:, None]).T
             Ws = Omega(ws)
 
             q = np.array([1.0, 0.0, 0.0, 0.0])
             for j in range(len(Ws))[:-1]:
-                # RK4
-                k1 = Ws[j] @ q
-                k2 = (Ws[j] + Ws[j+1])/2 @ (q + k1 * dt_[j]/2)
-                k3 = (Ws[j] + Ws[j+1])/2 @ (q + k2 * dt_[j]/2)
-                k4 = Ws[j+1] @ (q + k3 * dt_[j])
-                q = q + (k1 + k2*2 + k3*2 + k4)/6 * dt_[j]
+                # # RK4
+                # k1 = Ws[j] @ q
+                # k2 = (Ws[j] + Ws[j+1])/2 @ (q + k1 * dt_[j]/2)
+                # k3 = (Ws[j] + Ws[j+1])/2 @ (q + k2 * dt_[j]/2)
+                # k4 = Ws[j+1] @ (q + k3 * dt_[j])
+                # q = q + (k1 + k2*2 + k3*2 + k4)/6 * dt_[j]
+                q += Ws[j] @ q * dt_[j]
                 q /= np.linalg.norm(q)
 
             z[i, :] = Rmat(q) @ standstill_up[i+1] - standstill_up[i]
@@ -112,11 +108,15 @@ def compute_jacobian(residual, x, eps=1.0e-8):
         J[:, i] = (r_ - r) / eps
     return J
 
-def compute_covariance(residual, x, eps=1.0e-8):
+def compute_covariance(residual, x, sigma2=None, eps=1.0e-8):
     r = residual(x)
     J = compute_jacobian(residual, x, eps=eps)
-    sigma = 1.4826 * np.median(np.abs(r))
-    cov = sigma**2 * np.linalg.pinv(J.T @ J)
+    if sigma2 is None:
+        sigma2 = (1.4826 * np.median(np.abs(r)))**2
+    if np.isscalar(sigma2):
+        cov = sigma2 * np.linalg.pinv(J.T @ J)
+    else:
+        cov = np.linalg.pinv(J.T @ np.linalg.pinv(sigma2) @ J)
     return cov
 
 def generate_standstill_indices(imu_data, motion_margn_frame = 60, standstill_gyr_threshold = 0.13):
@@ -157,7 +157,7 @@ def calib_acc(accs, standstill_indices, g):
         )
 
     cov = compute_covariance(residual, res.x)
-    return res.x, cov[:9, :9]
+    return res.x[:9], cov[:9, :9]
 
 def calib_gyr(gyrs, accs, dt, standstill_indices):
     '''
@@ -183,23 +183,23 @@ def correct_acc(accs, theta_acc):
     Calibrate sensor measurements according to the model.
     See eq. (7).
     '''
-    M, B = sensor_error_model(theta_acc[0:9])
+    M, B, _ = sensor_error_model(theta_acc)
     C = np.linalg.inv(M)
 
-    # a' = (I + diag(S) + tri(NO)) @ a + B
-    return (accs - B[None, :]) @ C.T
+    # a' = (I + diag(K) + tri(O)) @ a + B
+    return (C @ accs.T - B[:, None]).T
 
 def correct_gyr(gyrs, theta_gyr):
     '''
     Calibrate sensor measurements according to the model.
     See eq. (8).
     '''
-    M, B = sensor_error_model(theta_gyr[0:9])
+    M, B, R = sensor_error_model(theta_gyr)
     C = np.linalg.inv(M)
-    R = np.linalg.inv(misalignment(theta_gyr[9:]))
+    R = np.linalg.inv(R)
 
-    # w' = (I + X(E)) @ ((I + diag(S) + tri(NO)) @ w + B)
-    return gyrs @ (R.T @ C.T) - B[None, :] @ C.T
+    # w' = (I + X(E)) @ ((I + diag(K) + tri(O)) @ w + B)
+    return ((C @ R) @ gyrs.T - (C @ B)[:, None]).T
 
 def evaluate_states(accs, gyrs, dt, g, p0=None, q0=None, v0=None):
     p0 = p0 if p0 is not None else np.array([0.0, 0.0, 0.0])
