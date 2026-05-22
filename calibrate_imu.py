@@ -68,12 +68,12 @@ def main():
     theta_json = {
         "theta_acc": {
             "scale":   [float(theta_acc[0]), float(theta_acc[1]), float(theta_acc[2])],
-            "nonorth": [float(theta_acc[3]), float(theta_acc[4]), float(theta_acc[5])],
+            "oblique": [float(theta_acc[3]), float(theta_acc[4]), float(theta_acc[5])],
             "bias":    [float(theta_acc[6]), float(theta_acc[7]), float(theta_acc[8])],
         },
         "theta_gyr": {
             "scale":    [float(theta_gyr[0]), float(theta_gyr[1]), float(theta_gyr[2])],
-            "nonorth":  [float(theta_gyr[3]), float(theta_gyr[4]), float(theta_gyr[5])],
+            "oblique":  [float(theta_gyr[3]), float(theta_gyr[4]), float(theta_gyr[5])],
             "bias":     [float(theta_gyr[6]), float(theta_gyr[7]), float(theta_gyr[8])],
             "misalign": [float(theta_gyr[9]), float(theta_gyr[10]), float(theta_gyr[11])],
         },

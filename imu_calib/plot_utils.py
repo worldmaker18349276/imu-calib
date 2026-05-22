@@ -105,7 +105,7 @@ def plot_theta(theta_acc, theta_gyr, cov_theta_acc, cov_theta_gyr):
         y_ = imu_calib.distort(theta, y)
         z_ = imu_calib.distort(theta, z)
 
-        # only consider bias and misalign, so that nonorth and scale are easy to see
+        # only consider bias and misalign, so that oblique and scale are easy to see
         theta2 = np.copy(theta)
         theta2[0:6] = 0
         o2 = imu_calib.distort(theta2, o)

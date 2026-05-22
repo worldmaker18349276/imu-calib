@@ -4,9 +4,9 @@ from imu_calib.utils import *
 
 
 def sensor_error_model(theta):
-    KX, KY, KZ, NOX, NOY, NOZ, BX, BY, BZ = theta
-    M = np.array([[1.0 + KX, -NOZ, NOY], 
-                  [0.0, 1.0 + KY, -NOX], 
+    KX, KY, KZ, OX, OY, OZ, BX, BY, BZ = theta
+    M = np.array([[1.0 + KX,  OZ,  OY],
+                  [0.0, 1.0 + KY,  OX],
                   [0.0, 0.0, 1.0 + KZ]])
     B = np.array([BX, BY, BZ])
     
@@ -22,18 +22,18 @@ def distort(theta, v):
     return R @ (M @ v + B)
 
 def explain(theta, name):
-    KX, KY, KZ, NOX, NOY, NOZ, BX, BY, BZ = theta[0:9]
-    RD = 180 / np.pi
+    KX, KY, KZ, OX, OY, OZ, BX, BY, BZ = theta[0:9]
+    R2D = 180 / np.pi
     res = f"Your sensor {name} are:\n"
     if len(theta) == 12:
         EX, EY, EZ = theta[9:12]
         res += (
-            f"  mis-aligned by    {EX*RD:+8.4f} {EY*RD:+8.4f} {EZ*RD:+8.4f} deg;\n"
+            f"  mis-aligned by {EX*R2D:+8.4f} {EY*R2D:+8.4f} {EZ*R2D:+8.4f} deg        (rotation vector to mis-aligned frame);\n"
         )
     res += (
-            f"  non-orthogonal by {NOX*RD:+8.4f} {NOY*RD:+8.4f} {NOZ*RD:+8.4f} deg;\n"
-            f"  enlarged by       {KX*100:+8.4f} {KY*100:+8.4f} {KZ*100:+8.4f} %;\n"
-            f"  offset by         {BX*100:+8.4f} {BY*100:+8.4f} {BZ*100:+8.4f} cent unit"
+            f"  oblique by     {OX*R2D:+8.4f} {OY*R2D:+8.4f} {OZ*R2D:+8.4f} deg        (angles between oblique axes - 90 deg);\n"
+            f"  enlarged by    {KX*100:+8.4f} {KY*100:+8.4f} {KZ*100:+8.4f} %          (scale factors on each axis - 1);\n"
+            f"  offset by      {BX*100:+8.4f} {BY*100:+8.4f} {BZ*100:+8.4f} cent unit  (offsets on each axis / 100)"
     )
     return res
 
