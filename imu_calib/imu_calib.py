@@ -37,27 +37,21 @@ def explain(theta, name):
     )
     return res
 
-def make_residual_acc(accs, g, standstill_flags):
+def make_residual_acc(accs, g, standstill_indices):
     '''
     Accelerometer cost function according to equation (10) in the paper
     '''
-    standstill_changes = np.hstack((0, np.diff(standstill_flags)))
-    motion_starts = np.where(standstill_changes == -1)
-    motion_ends = np.where(standstill_changes == 1)
-    motion_start_end_idxs = np.array([[max(0, s - 5), e + 5] for s, e in zip(*motion_starts, *motion_ends)], dtype=int)
-    standstill_start_end_idxs = np.array([0, *motion_start_end_idxs.flatten(), len(accs)]).reshape((-1, 2))
-    
     standstill_up = []
-    for idxs in standstill_start_end_idxs:
+    for idxs in standstill_indices:
         acc = np.mean(accs[idxs[0]:idxs[1], :], axis=0)
         standstill_up.append(acc / np.linalg.norm(acc))
 
     def residual_func(theta_up):
         M, B = sensor_error_model(theta_up[0:9])
         C = np.linalg.inv(M)
-        z = np.zeros((sum(standstill_flags > 0), 3))
+        z = np.zeros(((standstill_indices[:, 1] - standstill_indices[:, 0]).sum(), 3))
         j = 0
-        for idxs, up in zip(standstill_start_end_idxs, theta_up[9:].reshape((-1, 3))):
+        for idxs, up in zip(standstill_indices, theta_up[9:].reshape((-1, 3))):
             accs_ = (accs[idxs[0]:idxs[1], :] - B[None, :]) @ C.T
             g_up = up * (g / np.linalg.norm(up))
             j_next = j + idxs[1] - idxs[0]
@@ -68,30 +62,25 @@ def make_residual_acc(accs, g, standstill_flags):
     initial = np.concatenate([np.zeros((9,)), *standstill_up])
     return initial, residual_func
 
-def make_residual_gyr(gyrs, accs, dt, standstill_flags):
+def make_residual_gyr(gyrs, accs, dt, standstill_indices):
     '''
     Gyroscope cost function according to equation (16) in the paper
     '''
-    # find the indexes, when the sensor was rotated
-    standstill_changes = np.hstack((0, np.diff(standstill_flags)))
-    motion_starts = np.where(standstill_changes == -1)
-    motion_ends = np.where(standstill_changes == 1)
-    motion_start_end_idxs = np.array([[max(0, s - 5), e + 5] for s, e in zip(*motion_starts, *motion_ends)], dtype=int)
-    standstill_start_end_idxs = np.array([0, *motion_start_end_idxs.flatten(), len(accs)]).reshape((-1, 2))
-    
     standstill_up = []
-    for idx_standstill_start, idx_standstill_end in standstill_start_end_idxs:
-        acc = np.mean(accs[idx_standstill_start:idx_standstill_end, :], axis=0)
+    for idxs in standstill_indices:
+        acc = np.mean(accs[idxs[0]:idxs[1], :], axis=0)
         standstill_up.append(acc / np.linalg.norm(acc))
+
+    motion_indices = standstill_indices.flatten()[1:-1].reshape((-1, 2))
 
     def residual_func(theta):
         M, B = sensor_error_model(theta[0:9])
         C = np.linalg.inv(M)
         R = np.linalg.inv(misalignment(theta[-3:]))
 
-        z = np.zeros((len(motion_start_end_idxs), 3))
-        for i, idxs in enumerate(motion_start_end_idxs):
-            dt_ = np.repeat(dt, idxs[1]-idxs[0]) if np.isscalar(dt) else dt[idxs[0]:idxs[1]]
+        z = np.zeros((motion_indices.shape[0], 3))
+        for i, idxs in enumerate(motion_indices):
+            dt_ = dt[idxs[0]:idxs[1]]
             ws = gyrs[idxs[0]:idxs[1],:]
             ws = ws @ (R.T @ C.T) - B[None, :] @ C.T
             Ws = Omega(ws)
@@ -111,7 +100,7 @@ def make_residual_gyr(gyrs, accs, dt, standstill_flags):
         return z.flatten()
 
     initial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    initial[-6:-3] = np.mean(gyrs[standstill_flags > 0,:], axis=0)
+    initial[-6:-3] = np.mean(gyrs[standstill_indices[0,0]:standstill_indices[0,1],:], axis=0)
 
     return initial, residual_func
 
@@ -130,28 +119,32 @@ def compute_covariance(residual, x, eps=1.0e-8):
     cov = sigma**2 * np.linalg.pinv(J.T @ J)
     return cov
 
-def generate_standstill_flags(imu_data, motion_margn_frame = 60, standstill_gyr_threshold = 0.13):
-    standstill = np.zeros(len(imu_data), dtype=np.int8)
+def generate_standstill_indices(imu_data, motion_margn_frame = 60, standstill_gyr_threshold = 0.13):
+    standstill_flags = np.zeros(len(imu_data), dtype=np.int8)
     counter_after_motion = motion_margn_frame
     # generate standstill flags
     for i, m in enumerate(imu_data):
         if np.linalg.norm(m[3:6]) < standstill_gyr_threshold:
             counter_after_motion += 1
             if counter_after_motion > motion_margn_frame:
-                standstill[i] = 1
+                standstill_flags[i] = 1
         else:
-            standstill[i] = 0
-            standstill[:i][-motion_margn_frame:] = 0
+            standstill_flags[i] = 0
+            standstill_flags[:i][-motion_margn_frame:] = 0
             counter_after_motion = 0
 
-    return standstill
+    if standstill_flags[0] != 1 or standstill_flags[-1] != 1:
+        raise ValueError("invalid imu data: you should place down your sensor at the start and the end")
 
-def calib_acc(accs, standstill_flags, g):
+    standstill_indices = np.array([0, *np.where(np.diff(standstill_flags) != 0)[0], len(imu_data)]).reshape((-1, 2))
+    return standstill_indices
+
+def calib_acc(accs, standstill_indices, g):
     '''
     Find calibration parameters according to cost function from eq. (10)
     For details see make_residual_acc function inside cost_functions.py
     '''
-    initial, residual = make_residual_acc(accs, g, standstill_flags)
+    initial, residual = make_residual_acc(accs, g, standstill_indices)
     M = initial.shape[0] - 9
     res = optimize.least_squares(residual,
                                  initial,
@@ -166,12 +159,12 @@ def calib_acc(accs, standstill_flags, g):
     cov = compute_covariance(residual, res.x)
     return res.x, cov[:9, :9]
 
-def calib_gyr(gyrs, accs, dt, standstill_flags):
+def calib_gyr(gyrs, accs, dt, standstill_indices):
     '''
     Find calibration parameters according to cost function from eq. (16)
     For details see make_residual_gyr function inside cost_functions.py
     '''
-    initial, residual = make_residual_gyr(gyrs, accs, dt, standstill_flags)
+    initial, residual = make_residual_gyr(gyrs, accs, dt, standstill_indices)
     res = optimize.least_squares(
             residual,
             initial, 

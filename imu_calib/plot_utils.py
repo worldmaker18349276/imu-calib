@@ -5,21 +5,17 @@ from mpl_toolkits.mplot3d import Axes3D
 from imu_calib import imu_calib
 
 
-def plot_imu_data_and_standstill(imu_data, standstill_flags, times):
+def plot_imu_data_and_standstill(imu_data, standstill_indices, times):
     fig, ax = plt.subplots(2, 1, figsize=(16, 9))
     ax[0].plot(times, imu_data[:, 0:3])
     ax[0].legend(["ax", "ay", "az"])
     ax[1].plot(times, imu_data[:, 3:6])
     ax[1].legend(["wx", "wy", "wz"])
 
-    standstill_changes = np.hstack((0, np.diff(standstill_flags)))
-    motion_starts = np.where(standstill_changes == -1)
-    motion_ends = np.where(standstill_changes == 1)
-    motion_start_end_idxs = np.array([[s, e] for s, e in zip(*motion_starts, *motion_ends)], dtype=int)
-
-    for xmin, xmax in motion_start_end_idxs:
-        ax[0].axvspan(times[xmin], times[xmax], color='green', alpha=0.2)
-        ax[1].axvspan(times[xmin], times[xmax], color='green', alpha=0.2)
+    motion_indices = standstill_indices.flatten()[1:-1].reshape((-1, 2))
+    for idxs in motion_indices:
+        ax[0].axvspan(times[idxs[0]], times[idxs[1]], color='green', alpha=0.2)
+        ax[1].axvspan(times[idxs[0]], times[idxs[1]], color='green', alpha=0.2)
 
     plt.show()
 

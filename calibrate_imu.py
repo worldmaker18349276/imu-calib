@@ -26,18 +26,21 @@ def main():
     # read file with ax, ay, az, wx, wy, wz [, dt] measurements from IMU
     imu_data = np.genfromtxt(args.imu, delimiter=' ')
     accs, gyrs = imu_data[:,0:3], imu_data[:,3:6]
-    dt = np.pad(np.diff(imu_data[:,6]), (0, 1), mode="edge") if imu_data.shape[1] == 7 else 1 / args.sampling_frequency
-    times = np.arange(accs.shape[0]) * dt if np.isscalar(dt) else np.cumsum(dt)
+    if imu_data.shape[1] == 7:
+        dt = np.pad(np.diff(imu_data[:,6]), (0, 1), mode="edge")
+    else:
+        dt = np.repeat(1 / args.sampling_frequency, (imu_data.shape[0],))
+    times = np.hstack((0.0, np.cumsum(dt)[:-1]))
 
     motion_margn_frame = int(motion_margn_sec / np.mean(dt))
-    standstill_flag = imu_calib.generate_standstill_flags(imu_data, motion_margn_frame, standstill_gyr_threshold)
+    standstill_indices = imu_calib.generate_standstill_indices(imu_data, motion_margn_frame, standstill_gyr_threshold)
 
     if args.verbose:
-        plot_utils.plot_imu_data_and_standstill(imu_data, standstill_flag, times)
+        plot_utils.plot_imu_data_and_standstill(imu_data, standstill_indices, times)
 
     # find accelerometer calibration parameters and calibrate accel measurements
     time_start = time.time()
-    theta_acc, cov_theta_acc = imu_calib.calib_acc(accs, standstill_flag, g)
+    theta_acc, cov_theta_acc = imu_calib.calib_acc(accs, standstill_indices, g)
     time_end = time.time()
 
     print(f"ACC calibration done in: {time_end - time_start:.1f} s")
@@ -48,7 +51,7 @@ def main():
 
     # find gyroscope calibration parameters
     time_start = time.time()
-    theta_gyr, cov_theta_gyr = imu_calib.calib_gyr(gyrs, accs_calibrated, dt, standstill_flag)
+    theta_gyr, cov_theta_gyr = imu_calib.calib_gyr(gyrs, accs_calibrated, dt, standstill_indices)
     time_end = time.time()
 
     print(f"GYR calibration done in: {time_end - time_start:.1f} s")
