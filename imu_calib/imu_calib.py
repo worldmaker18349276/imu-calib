@@ -267,8 +267,7 @@ def evaluate_states(accs, gyrs, dt, g, p0=None, q0=None, v0=None):
     vs[0, :] = v0
     qs[0, :] = q0
 
-    acc_g = np.mean(accs[0:100,:], axis=0)
-    acc_g = acc_g / np.linalg.norm(acc_g) * g
+    acc_g = np.array([0.0, 0.0, g])
 
     dt = np.repeat(dt, N) if np.isscalar(dt) else dt
     Ws = Omega(gyrs)

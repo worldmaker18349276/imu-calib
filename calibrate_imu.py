@@ -66,7 +66,7 @@ def main():
         true_data = None
         if args.imu_true:
             true_data = np.genfromtxt(args.imu_true, delimiter=' ')
-        plot_utils.plot_gyro_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt, g, times, compare=true_data)
+        plot_utils.plot_state_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt, standstill_indices, g, times, compare=true_data)
 
         plot_utils.plot_theta(theta_acc, theta_gyr, cov_theta_acc, cov_theta_gyr)
 
