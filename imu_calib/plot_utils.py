@@ -19,12 +19,13 @@ def plot_imu_data_and_standstill(imu_data, standstill_indices, times):
 
     plt.show()
 
-def plot_accelerations_before_and_after(accs, accs_calibrated, times):
+def plot_accelerations_before_and_after(accs, accs_calibrated, times, g):
     fig, ax = plt.subplots(1, 1, figsize=(8, 3))
     ax.plot(times, np.linalg.norm(accs, axis=1), alpha = 0.5)
     ax.plot(times, np.linalg.norm(accs_calibrated, axis=1), alpha = 0.5)
+    ax.axhline(g, linewidth=1, color="black")
     ax.legend(["Uncalibrated norm", "Calibrated norm"])
-    ax.set(xlabel='$time, s$', ylabel='$m/s^2$', ylim = [8.81, 10.81])
+    ax.set(xlabel='$time, s$', ylabel='$m/s^2$', ylim = [g-1, g+1])
     plt.show()
 
 def plot_gyro_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt, g, times, compare=None):

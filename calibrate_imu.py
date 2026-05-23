@@ -38,6 +38,8 @@ def main():
     if args.verbose:
         plot_utils.plot_imu_data_and_standstill(imu_data, standstill_indices, times)
 
+    print(f"calibrate ACC...")
+
     # find accelerometer calibration parameters and calibrate accel measurements
     time_start = time.time()
     theta_acc, cov_theta_acc = imu_calib.calib_acc(accs, standstill_indices, g)
@@ -47,7 +49,9 @@ def main():
     print(imu_calib.explain(theta_acc, "ACC"))
     accs_calibrated = imu_calib.correct_acc(accs, theta_acc)
     if args.verbose:
-        plot_utils.plot_accelerations_before_and_after(accs, accs_calibrated, times)
+        plot_utils.plot_accelerations_before_and_after(accs, accs_calibrated, times, g)
+
+    print(f"calibrate GYR...")
 
     # find gyroscope calibration parameters
     time_start = time.time()
