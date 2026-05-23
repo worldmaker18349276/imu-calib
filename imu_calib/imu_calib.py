@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 import scipy.optimize as optimize
 from imu_calib.utils import *
 
@@ -34,7 +35,7 @@ def explain(theta, name):
     )
     return res
 
-def make_residual_acc(accs, g, standstill_indices):
+def make_residual_acc(accs, g, standstill_indices, Na):
     '''
     Accelerometer cost function according to equation (10) in the paper
     '''
@@ -54,10 +55,13 @@ def make_residual_acc(accs, g, standstill_indices):
             j = j_next
         return z.flatten()
 
-    initial = np.concatenate([np.zeros((9,)), *standstill_up])
-    return initial, residual_func
+    def covariance_func(theta_up):
+        return Na**2
 
-def make_residual_gyr(gyrs, accs, dt, standstill_indices):
+    initial = np.concatenate([np.zeros((9,)), *standstill_up])
+    return initial, residual_func, covariance_func
+
+def make_residual_gyr(gyrs, accs, dt, standstill_indices, Nw):
     '''
     Gyroscope cost function according to equation (16) in the paper
     '''
@@ -91,14 +95,46 @@ def make_residual_gyr(gyrs, accs, dt, standstill_indices):
                 q += Ws[j] @ q * dt_[j]
                 q /= np.linalg.norm(q)
 
-            z[i, :] = Rmat(q) @ standstill_up[i+1] - standstill_up[i]
+            z[i, :] = Rmat(q).T @ standstill_up[i] - standstill_up[i+1]
 
         return z.flatten()
 
-    initial = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    initial[-6:-3] = np.mean(gyrs[standstill_indices[0,0]:standstill_indices[0,1],:], axis=0)
+    def covariance_func(theta):
+        M, B, R = sensor_error_model(theta)
+        C = np.linalg.inv(M)
+        R = np.linalg.inv(R)
 
-    return initial, residual_func
+        cov = np.zeros((motion_indices.shape[0], 3, 3))
+        for i, idxs in enumerate(motion_indices):
+            dt_ = dt[idxs[0]:idxs[1]]
+            ws = gyrs[idxs[0]:idxs[1],:]
+            ws = ((C @ R) @ ws.T - (C @ B)[:, None]).T
+            Ws = Omega(ws)
+
+            q = np.array([1.0, 0.0, 0.0, 0.0])
+            for j in range(len(Ws))[:-1]:
+                q += Ws[j] @ q * dt_[j]
+                q /= np.linalg.norm(q)
+
+            # U(N,N-1) ... U(n+1,n) skew(-w(n) dt) U(n,n-1) ... U(1,0) up
+            # = U(N,n) skew(- w(n) dt) U(n,0) up
+            # = skew(- U(N,n) w(n) dt) U(N,0) up
+            # = skew(U(N,0) up) U(N,n) dt w(n)
+            # = U(N,0) skew(up) U(0,n) dt w(n)
+
+            # V = U(N,0) skew(up)
+            # Sigma = V (sum[n] U(0,n) sigma^2 dt U(n,0)) V.T
+            #       = V V.T sigma^2 Delta_t
+
+            V = Rmat(q).T @ skew(standstill_up[i])
+            cov[i, :, :] = V @ V.T * Nw**2 * (dt[idxs[1]] - dt[idxs[0]])
+
+        return scipy.linalg.block_diag(*cov)
+
+    initial = np.zeros((12,), dtype=float)
+    initial[9:12] = np.mean(gyrs[standstill_indices[0,0]:standstill_indices[0,1],:], axis=0)
+
+    return initial, residual_func, covariance_func
 
 def compute_jacobian(residual, x, eps=1.0e-8):
     r = residual(x)
@@ -108,15 +144,15 @@ def compute_jacobian(residual, x, eps=1.0e-8):
         J[:, i] = (r_ - r) / eps
     return J
 
-def compute_covariance(residual, x, sigma2=None, eps=1.0e-8):
+def compute_covariance(residual, x, Sigma=None, eps=1.0e-8):
     r = residual(x)
     J = compute_jacobian(residual, x, eps=eps)
-    if sigma2 is None:
-        sigma2 = (1.4826 * np.median(np.abs(r)))**2
-    if np.isscalar(sigma2):
-        cov = sigma2 * np.linalg.pinv(J.T @ J)
+    if Sigma is None:
+        Sigma = (1.4826 * np.median(np.abs(r)))**2
+    if np.isscalar(Sigma):
+        cov = Sigma * np.linalg.pinv(J.T @ J)
     else:
-        cov = np.linalg.pinv(J.T @ np.linalg.pinv(sigma2) @ J)
+        cov = np.linalg.pinv(J.T @ np.linalg.pinv(Sigma) @ J)
     return cov
 
 def generate_standstill_indices(imu_data, motion_margn_frame = 60, standstill_gyr_threshold = 0.13):
@@ -139,12 +175,12 @@ def generate_standstill_indices(imu_data, motion_margn_frame = 60, standstill_gy
     standstill_indices = np.array([0, *np.where(np.diff(standstill_flags) != 0)[0], len(imu_data)]).reshape((-1, 2))
     return standstill_indices
 
-def calib_acc(accs, standstill_indices, g):
+def calib_acc(accs, standstill_indices, g, Na = 1e-6):
     '''
     Find calibration parameters according to cost function from eq. (10)
     For details see make_residual_acc function inside cost_functions.py
     '''
-    initial, residual = make_residual_acc(accs, g, standstill_indices)
+    initial, residual, covariance = make_residual_acc(accs, g, standstill_indices, Na)
     M = initial.shape[0] - 9
     res = optimize.least_squares(residual,
                                  initial,
@@ -156,15 +192,16 @@ def calib_acc(accs, standstill_indices, g):
                                        (0.11,   0.11,  0.11,  0.11,  0.11,  0.11,  1.1,  1.1,  1.1,  *[1.]*M)],
         )
 
-    cov = compute_covariance(residual, res.x)
+    Sigma = covariance(res.x)
+    cov = compute_covariance(residual, res.x, Sigma=Sigma)
     return res.x[:9], cov[:9, :9]
 
-def calib_gyr(gyrs, accs, dt, standstill_indices):
+def calib_gyr(gyrs, accs, dt, standstill_indices, Nw = 1e-6):
     '''
     Find calibration parameters according to cost function from eq. (16)
     For details see make_residual_gyr function inside cost_functions.py
     '''
-    initial, residual = make_residual_gyr(gyrs, accs, dt, standstill_indices)
+    initial, residual, covariance = make_residual_gyr(gyrs, accs, dt, standstill_indices, Nw)
     res = optimize.least_squares(
             residual,
             initial, 
@@ -175,7 +212,8 @@ def calib_gyr(gyrs, accs, dt, standstill_indices):
                     (-0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -0.11),
                     (0.11,   0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  0.11)],
         )
-    cov = compute_covariance(residual, res.x)
+    Sigma = covariance(res.x)
+    cov = compute_covariance(residual, res.x, Sigma=Sigma)
     return res.x, cov
 
 def correct_acc(accs, theta_acc):
