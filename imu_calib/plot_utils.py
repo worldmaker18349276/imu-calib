@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 from imu_calib import imu_calib
+from imu_calib.utils import *
 
 
 def plot_imu_data_and_standstill(imu_data, standstill_indices, times):
@@ -28,70 +29,56 @@ def plot_accelerations_before_and_after(accs, accs_calibrated, times, g):
     ax.set(xlabel='$time, s$', ylabel='$m/s^2$', ylim = [g-1, g+1])
     plt.show()
 
-def quat_to_z(v):
-    v = np.asarray(v, dtype=float)
-    v /= np.linalg.norm(v)
+def plot_gyroscope_before_and_after(gyrs, gyrs_calibrated, times):
+    fig, ax = plt.subplots(3, 1, figsize=(8, 6), sharex=True, sharey=True)
+    ax[0].plot(times, gyrs[:, 0], alpha = 0.5)
+    ax[1].plot(times, gyrs[:, 1], alpha = 0.5)
+    ax[2].plot(times, gyrs[:, 2], alpha = 0.5)
+    ax[0].plot(times, gyrs_calibrated[:, 0], alpha = 0.5)
+    ax[1].plot(times, gyrs_calibrated[:, 1], alpha = 0.5)
+    ax[2].plot(times, gyrs_calibrated[:, 2], alpha = 0.5)
+    for i in range(3):
+        ax[i].legend(["Uncalibrated", "Calibrated"])
+        ax[i].axhline(0, linewidth=1, color="black")
+        ax[i].set(ylabel='$rad/s$', ylim = [-0.2, 0.2])
+    ax[2].set(xlabel='$time, s$')
+    plt.show()
 
-    z = np.array([0.0, 0.0, 1.0])
-    c = np.cross(v, z)
-    d = np.dot(v, z)
+def plot_state_before_and_after(p, q, v, p_, q_, v_, standstill_indices, times):
+    def compute_ups(q):
+        u = np.zeros((len(q), 3))
+        for i in range(len(q)):
+            u[i, :] = Rmat(q[i, :]).T @ np.array([0.0, 0.0, 1.0])
+        return u
 
-    q = np.array([1.0 + d, c[0], c[1], c[2]])
-    if q[0] < 1e-10:
-        q = np.array([0.0, 1.0, 0.0, 0.0])
-    q /= np.linalg.norm(q)
-    return q
+    ups = compute_ups(q)
+    ups_ = compute_ups(q_)
 
-def plot_state_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt, standstill_indices, g, times, compare=None):
-    up0 = np.mean(accs_calibrated[standstill_indices[0,0]:standstill_indices[0,1], :], axis=0)
-    q0 = quat_to_z(up0)
-    
-    p, q, v = imu_calib.evaluate_states(accs, gyrs, dt, g, q0=q0)
-    p_, q_, v_ = imu_calib.evaluate_states(accs_calibrated, gyrs_calibrated, dt, g, q0=q0)
-    p0, q0, v0 = imu_calib.evaluate_states(compare[:, 0:3], compare[:, 3:6], dt, g, q0=q0) if compare is not None else (None, None, None)
+    fig, ax = plt.subplots(3, 2, figsize=(16, 9), sharex=True)
+    ax[0,0].plot(times, ups[:,0], label = 'uncalibrated')
+    ax[0,0].plot(times, ups_[:,0], label = 'calibrated')
+    ax[0,0].legend()
+    ax[0,0].set(xlabel = "time", ylim = [-1.0, 1.0], title = "up.x")
 
-    fig, ax = plt.subplots(3, 2, figsize=(16, 9))
-    ax[0, 0].plot(times, q[:, 1], label = 'uncalibrated')
-    ax[0, 0].plot(times, q_[:, 1], marker = 'x', markersize = 2, linestyle = 'none', label = 'calibrated')
-    if q0 is not None:
-        ax[0, 0].plot(times, q0[:, 1], marker = 'o', markersize = 2, linestyle = 'none', label = 'true')
-    ax[0, 0].legend()
-    ax[0, 0].set(xlabel = "time", ylim = [-1.0, 1.0], title = "orientation q.x")
+    ax[1,0].plot(times, ups[:,1], label = 'uncalibrated')
+    ax[1,0].plot(times, ups_[:,1], label = 'calibrated')
+    ax[1,0].legend()
+    ax[1,0].set(xlabel = "time", ylim = [-1.0, 1.0], title = "up.y")
 
-    ax[1, 0].plot(times, q[:, 2], label = 'uncalibrated')
-    ax[1, 0].plot(times, q_[:, 2], marker = 'x', markersize = 2, linestyle = 'none', label = 'calibrated')
-    if q0 is not None:
-        ax[1, 0].plot(times, q0[:, 2], marker = 'o', markersize = 2, linestyle = 'none', label = 'true')
-    ax[1, 0].legend()
-    ax[1, 0].set(xlabel = "time", ylim = [-1.0, 1.0], title = "orientation q.y")
+    ax[2,0].plot(times, ups[:,2], label = 'uncalibrated')
+    ax[2,0].plot(times, ups_[:,2], label = 'calibrated')
+    ax[2,0].legend()
+    ax[2,0].set(xlabel = "time", ylim = [-1.0, 1.0], title = "up.z")
 
-    ax[2, 0].plot(times, q[:, 3], label = 'uncalibrated')
-    ax[2, 0].plot(times, q_[:, 3], marker = 'x', markersize = 2, linestyle = 'none', label = 'calibrated')
-    if q0 is not None:
-        ax[2, 0].plot(times, q0[:, 3], marker = 'o', markersize = 2, linestyle = 'none', label = 'true')
-    ax[2, 0].legend()
-    ax[2, 0].set(xlabel = "time", ylim = [-1.0, 1.0], title = "orientation q.z")
+    ax[0,1].plot(times, v[:, 2], label = 'uncalibrated')
+    ax[0,1].plot(times, v_[:, 2], label = 'calibrated')
+    ax[0,1].legend()
+    ax[0,1].set(xlabel = "time", ylim = [-2.0, 2.0], title = "velocity v.z")
 
-    ax[0, 1].plot(times, v[:, 0], label = 'uncalibrated')
-    ax[0, 1].plot(times, v_[:, 0], marker = 'x', markersize = 2, linestyle = 'none', label = 'calibrated')
-    if v0 is not None:
-        ax[0, 1].plot(times, v0[:, 0], marker = 'o', markersize = 2, linestyle = 'none', label = 'true')
-    ax[0, 1].legend()
-    ax[0, 1].set(xlabel = "time", ylim = [-10.0, 10.0], title = "velocity v.x")
-
-    ax[1, 1].plot(times, v[:, 1], label = 'uncalibrated')
-    ax[1, 1].plot(times, v_[:, 1], marker = 'x', markersize = 2, linestyle = 'none', label = 'calibrated')
-    if v0 is not None:
-        ax[1, 1].plot(times, v0[:, 1], marker = 'o', markersize = 2, linestyle = 'none', label = 'true')
-    ax[1, 1].legend()
-    ax[1, 1].set(xlabel = "time", ylim = [-10.0, 10.0], title = "velocity v.y")
-
-    ax[2, 1].plot(times, v[:, 2], label = 'uncalibrated')
-    ax[2, 1].plot(times, v_[:, 2], marker = 'x', markersize = 2, linestyle = 'none', label = 'calibrated')
-    if v0 is not None:
-        ax[2, 1].plot(times, v0[:, 2], marker = 'o', markersize = 2, linestyle = 'none', label = 'true')
-    ax[2, 1].legend()
-    ax[2, 1].set(xlabel = "time", ylim = [-10.0, 10.0], title = "velocity v.z")
+    ax[1,1].plot(times, (v[:, 1]**2 + v[:, 1]**2)**0.5, label = 'uncalibrated')
+    ax[1,1].plot(times, (v_[:, 1]**2 + v_[:, 1]**2)**0.5, label = 'calibrated')
+    ax[1,1].legend()
+    ax[1,1].set(xlabel = "time", ylim = [0.0, 4.0], title = "velocity v.s")
 
     motion_indices = standstill_indices.flatten()[1:-1].reshape((-1, 2))
     for i in range(3):

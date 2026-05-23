@@ -252,24 +252,19 @@ def correct_gyr(gyrs, theta_gyr):
     # w' = (I + X(E)) @ ((I + diag(K) + tri(O)) @ w + B)
     return ((C @ R) @ gyrs.T - (C @ B)[:, None]).T
 
-def evaluate_states(accs, gyrs, dt, g, p0=None, q0=None, v0=None):
-    p0 = p0 if p0 is not None else np.array([0.0, 0.0, 0.0])
-    q0 = q0 if q0 is not None else np.array([1.0, 0.0, 0.0, 0.0])
-    v0 = v0 if v0 is not None else np.array([0.0, 0.0, 0.0])
-
+def evaluate_states(accs, gyrs, dt, g, first_standstill_start_index, first_standstill_end_index):
     N = accs.shape[0]
 
     ps = np.zeros((N, 3))
     vs = np.zeros((N, 3))
     qs = np.zeros((N, 4))
 
-    ps[0, :] = p0
-    vs[0, :] = v0
-    qs[0, :] = q0
+    up = np.mean(accs[first_standstill_start_index:first_standstill_end_index, :], axis=0)
+    up /= np.linalg.norm(up)
+    qs[0, :] = quat_to_z(up)
 
     acc_g = np.array([0.0, 0.0, g])
 
-    dt = np.repeat(dt, N) if np.isscalar(dt) else dt
     Ws = Omega(gyrs)
 
     for j in range(len(Ws))[:-1]:
@@ -285,5 +280,45 @@ def evaluate_states(accs, gyrs, dt, g, p0=None, q0=None, v0=None):
         R1 = Rmat(qs[j+1])
         vs[j+1] = vs[j] + ((R0 @ accs[j] + R1 @ accs[j+1])/2 - acc_g) * dt[j]
         ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j] + (R0 @ accs[j] - acc_g) * 0.5 * dt[j]**2
+
+    return ps, qs, vs
+
+def evaluate_states_separately(accs, gyrs, dt, g, standstill_indices):
+    standstill_up = []
+    for idxs in standstill_indices:
+        standstill_up.append(np.mean(accs[idxs[0]:idxs[1], :], axis=0))
+
+    N = accs.shape[0]
+
+    ps = np.zeros((N, 3))
+    vs = np.zeros((N, 3))
+    qs = np.zeros((N, 4))
+    qs[:, 0] = 1
+
+    acc_g = np.array([0.0, 0.0, g])
+
+    Ws = Omega(gyrs)
+
+    standstill_indices_ = np.copy(standstill_indices.reshape(-1))
+    standstill_indices_[-1] = len(accs)-1
+    for i, (start, end) in enumerate(zip(standstill_indices_[:-1], standstill_indices_[1:])):
+        # fix orientation and velocity at the start of every sections
+        up = Rmat(qs[start, :]) @ standstill_up[i//2]
+        qs[start, :] = quat_mul(quat_to_z(up), qs[start, :])
+        vs[start, :] = 0
+
+        for j in range(start, end):
+            # RK4
+            k1 = Ws[j] @ qs[j]
+            k2 = (Ws[j] + Ws[j+1])/2 @ (qs[j] + k1 * dt[j]/2)
+            k3 = (Ws[j] + Ws[j+1])/2 @ (qs[j] + k2 * dt[j]/2)
+            k4 = Ws[j+1] @ (qs[j] + k3 * dt[j])
+            qs[j+1] = qs[j] + (k1 + k2*2 + k3*2 + k4)/6 * dt[j]
+            qs[j+1] /= np.linalg.norm(qs[j+1])
+
+            R0 = Rmat(qs[j])
+            R1 = Rmat(qs[j+1])
+            vs[j+1] = vs[j] + ((R0 @ accs[j] + R1 @ accs[j+1])/2 - acc_g) * dt[j]
+            ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j] + (R0 @ accs[j] - acc_g) * 0.5 * dt[j]**2
 
     return ps, qs, vs

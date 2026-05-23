@@ -16,8 +16,6 @@ def main():
         required = True, type = str)
     parser.add_argument('-f', '--sampling-frequency', help = 'Sampling frequency for logfile, use if t is not given.', 
         required = False, type = float)
-    parser.add_argument('-t', '--imu-true', help = 'Path to file with data of true values.',
-        required = False, type = str)
     parser.add_argument('-o', '--calib', help = 'Path to output json file for calibration paramters.',
         required = False, default = None, type = str)
     parser.add_argument('-v', '--verbose', action = 'store_true', help = 'Plot report')
@@ -63,12 +61,16 @@ def main():
     gyrs_calibrated = imu_calib.correct_gyr(gyrs, theta_gyr)
 
     if args.verbose:
-        true_data = None
-        if args.imu_true:
-            true_data = np.genfromtxt(args.imu_true, delimiter=' ')
-        plot_utils.plot_state_before_and_after(accs, accs_calibrated, gyrs, gyrs_calibrated, dt, standstill_indices, g, times, compare=true_data)
+        plot_utils.plot_gyroscope_before_and_after(gyrs, gyrs_calibrated, times)
 
+    if args.verbose:
         plot_utils.plot_theta(theta_acc, theta_gyr, cov_theta_acc, cov_theta_gyr)
+
+    if args.verbose:
+        print("reconstruct calibration states...")
+        p, q, v = imu_calib.evaluate_states_separately(accs, gyrs, dt, g, standstill_indices)
+        p_, q_, v_ = imu_calib.evaluate_states_separately(accs_calibrated, gyrs_calibrated, dt, g, standstill_indices)
+        plot_utils.plot_state_before_and_after(p, q, v, p_, q_, v_, standstill_indices, times)
 
     calib_path = args.calib if args.calib is not None else Path(args.imu).with_suffix(".json")
     print("Write to file: ", calib_path)
