@@ -175,11 +175,22 @@ def generate_standstill_indices(imu_data, motion_margn_frame = 60, standstill_gy
     standstill_indices = np.array([0, *np.where(np.diff(standstill_flags) != 0)[0], len(imu_data)]).reshape((-1, 2))
     return standstill_indices
 
-def calib_acc(accs, standstill_indices, g, Na = 1e-6):
+def estimate_deviation(data, standstill_indices):
+    err2 = 0.0
+    for idxs in standstill_indices:
+        data_ = data[idxs[0]:idxs[1], :]
+        err2 += np.sum((data_ - np.mean(data_, axis=0, keepdims=True))**2)
+    N = np.sum(standstill_indices[:,1] - standstill_indices[:,0])
+    dev = (err2 / N)**0.5
+    return dev
+
+def calib_acc(accs, standstill_indices, g, Na=None):
     '''
     Find calibration parameters according to cost function from eq. (10)
     For details see make_residual_acc function inside cost_functions.py
     '''
+    if Na is None:
+        Na = estimate_deviation(accs, standstill_indices)
     initial, residual, covariance = make_residual_acc(accs, g, standstill_indices, Na)
     M = initial.shape[0] - 9
     res = optimize.least_squares(residual,
@@ -196,11 +207,13 @@ def calib_acc(accs, standstill_indices, g, Na = 1e-6):
     cov = compute_covariance(residual, res.x, Sigma=Sigma)
     return res.x[:9], cov[:9, :9]
 
-def calib_gyr(gyrs, accs, dt, standstill_indices, Nw = 1e-6):
+def calib_gyr(gyrs, accs, dt, standstill_indices, Nw=None):
     '''
     Find calibration parameters according to cost function from eq. (16)
     For details see make_residual_gyr function inside cost_functions.py
     '''
+    if Nw is None:
+        Nw = estimate_deviation(gyrs, standstill_indices)
     initial, residual, covariance = make_residual_gyr(gyrs, accs, dt, standstill_indices, Nw)
     res = optimize.least_squares(
             residual,
