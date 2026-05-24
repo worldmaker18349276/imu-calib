@@ -282,12 +282,18 @@ def evaluate_states(accs, gyrs, dt, g, first_standstill_start_index, first_stand
 
     return ps, qs, vs
 
-def evaluate_states_separately(accs, gyrs, dt, g, standstill_indices, standstill_up):
+def evaluate_states_separately(accs, gyrs, dt, g, standstill_indices, standstill_up, Na=None, Nw=None):
+    if Na is None:
+        Na = estimate_deviation(accs, standstill_indices)
+    if Nw is None:
+        Nw = estimate_deviation(gyrs, standstill_indices)
+
     N = accs.shape[0]
 
     ps = np.zeros((N, 3))
     vs = np.zeros((N, 3))
     qs = np.zeros((N, 4))
+    Nvs = np.zeros((N,))
     qs[:, 0] = 1
 
     acc_g = np.array([0.0, 0.0, g])
@@ -317,4 +323,28 @@ def evaluate_states_separately(accs, gyrs, dt, g, standstill_indices, standstill
             vs[j+1] = vs[j] + a * dt[j]
             ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j]
 
-    return ps, qs, vs
+            # v[N] = sum[j in 0..N](dt[j] a[j])
+            # a[N] = U(0, N) acc[N]
+            # Nv[N] = sum[j in 0..N](dt[j] Na[j])
+            # Na[N] = U(0, N) Nacc[N] + ... + U(0, k) skew(Nw[k] dt) U(k, N) acc[N] + ...
+            #       = U(0, N) Nacc[N] + ... - skew(U(0, N) acc[N]) U(0, k) Nw[k]
+            # Nv[N] = sum[j in 0..N](dt[j] U(0, j) Nacc[j])
+            #       - sum[j in 0..N](dt[j] skew(U(0, j) acc[j]) sum[k in 0..j](dt[k] U(0, k) Nw[k]))
+            #       = sum[j in 0..N](dt[j] U(0, j) Nacc[j])
+            #       - sum[k in 0..N](dt[k] V[k] U(0, k) Nw[k])
+            # V[k] = sum[j in k..N](dt[j] skew(U(0, j) acc[j]))
+            #      = skew(sum[j in k..N](dt[j] U(0, j) acc[j]))
+            #      = skew(v[N] - v[k])
+            # Cov(Nv[N]) = sum[j in 0..N](dt[j] U(0, j) Cov(Na[j]) U(j, 0))
+            #            + sum[k in 0..N](dt[k] V[k] U(0, k) Cov(Nw[k]) U(k, 0) V[k]^T)
+            #            = (t[N] - t[0]) Na^2
+            #            - sum[k in 0..N](dt[k] skew(v[N] - v[k])^2) Nw^2
+            # tr(Cov(Nv[N])) = (t[N] - t[0]) 3 Na^2
+            #                + sum[k in 0..N](dt[k] |v[N] - v[k]|^2) 2 Nw^2
+
+            Nvs[j+1] = np.sqrt(
+                np.sum(dt[start:j+1]) * 3 * Na**2
+                + np.sum((vs[j+1:j+2, :] - vs[start:j+1, :])**2 * dt[start:j+1, None]) * 2 * Nw**2
+            )
+
+    return ps, qs, vs, Nvs

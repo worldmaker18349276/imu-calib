@@ -7,7 +7,7 @@ from imu_calib.utils import *
 
 
 def plot_imu_data_and_standstill(imu_data, standstill_indices, times):
-    fig, ax = plt.subplots(2, 1, figsize=(16, 9))
+    fig, ax = plt.subplots(2, 1, figsize=(16, 9), sharex=True)
     ax[0].plot(times, imu_data[:, 0:3])
     ax[0].legend(["ax", "ay", "az"])
     ax[1].plot(times, imu_data[:, 3:6])
@@ -44,7 +44,7 @@ def plot_gyroscope_before_and_after(gyrs, gyrs_calibrated, times):
     ax[2].set(xlabel='$time, s$')
     plt.show()
 
-def plot_state_before_and_after(p, q, v, p_, q_, v_, standstill_indices, times):
+def plot_state_before_and_after(p, q, v, Nv, p_, q_, v_, Nv_, standstill_indices, times):
     def compute_ups(q):
         u = np.zeros((len(q), 3))
         for i in range(len(q)):
@@ -72,13 +72,21 @@ def plot_state_before_and_after(p, q, v, p_, q_, v_, standstill_indices, times):
 
     ax[0,1].plot(times, v[:, 2], label = 'uncalibrated')
     ax[0,1].plot(times, v_[:, 2], label = 'calibrated')
+    ax[0,1].axhline(0, linewidth=1, color="black")
     ax[0,1].legend()
     ax[0,1].set(xlabel = "time", ylim = [-2.0, 2.0], title = "velocity v.z")
 
     ax[1,1].plot(times, (v[:, 1]**2 + v[:, 1]**2)**0.5, label = 'uncalibrated')
     ax[1,1].plot(times, (v_[:, 1]**2 + v_[:, 1]**2)**0.5, label = 'calibrated')
+    ax[1,1].axhline(0, linewidth=1, color="black")
     ax[1,1].legend()
     ax[1,1].set(xlabel = "time", ylim = [0.0, 4.0], title = "velocity v.s")
+
+    ax[2,1].plot(times, Nv, label = 'uncalibrated')
+    ax[2,1].plot(times, Nv_, label = 'calibrated')
+    ax[2,1].axhline(0, linewidth=1, color="black")
+    ax[2,1].legend()
+    ax[2,1].set(xlabel = "time", ylim = [0.0, 4.0], title = "velocity deviation Nv")
 
     motion_indices = standstill_indices.flatten()[1:-1].reshape((-1, 2))
     for i in range(3):

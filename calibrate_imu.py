@@ -29,6 +29,8 @@ def main():
     else:
         dt = np.repeat(1 / args.sampling_frequency, (imu_data.shape[0],))
     times = np.hstack((0.0, np.cumsum(dt)[:-1]))
+    
+    print(f"sampling frequency: {1/np.mean(dt):.2f}")
 
     motion_margn_frame = int(motion_margn_sec / np.mean(dt))
     standstill_indices = imu_calib.generate_standstill_indices(imu_data, motion_margn_frame, standstill_gyr_threshold)
@@ -68,9 +70,9 @@ def main():
 
     if args.verbose:
         print("reconstruct calibration states...")
-        p, q, v = imu_calib.evaluate_states_separately(accs, gyrs, dt, g, standstill_indices, standstill_up)
-        p_, q_, v_ = imu_calib.evaluate_states_separately(accs_calibrated, gyrs_calibrated, dt, g, standstill_indices, standstill_up)
-        plot_utils.plot_state_before_and_after(p, q, v, p_, q_, v_, standstill_indices, times)
+        p, q, v, Nv = imu_calib.evaluate_states_separately(accs, gyrs, dt, g, standstill_indices, standstill_up)
+        p_, q_, v_, Nv_ = imu_calib.evaluate_states_separately(accs_calibrated, gyrs_calibrated, dt, g, standstill_indices, standstill_up)
+        plot_utils.plot_state_before_and_after(p, q, v, Nv, p_, q_, v_, Nv_, standstill_indices, times)
 
     calib_path = args.calib if args.calib is not None else Path(args.imu).with_suffix(".json")
     print("Write to file: ", calib_path)
