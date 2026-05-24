@@ -82,11 +82,12 @@ def plot_state_before_and_after(p, q, v, Nv, p_, q_, v_, Nv_, standstill_indices
     ax[1,1].legend()
     ax[1,1].set(xlabel = "time", ylim = [0.0, 4.0], title = "velocity v.s")
 
-    ax[2,1].plot(times, Nv, label = 'uncalibrated')
-    ax[2,1].plot(times, Nv_, label = 'calibrated')
+    ax[2,1].plot(times, np.linalg.norm(v, axis=1), label = 'uncalibrated')
+    ax[2,1].plot(times, np.linalg.norm(v_, axis=1), label = 'calibrated')
+    ax[2,1].plot(times, Nv_, label = 'deviation')
     ax[2,1].axhline(0, linewidth=1, color="black")
     ax[2,1].legend()
-    ax[2,1].set(xlabel = "time", ylim = [0.0, 4.0], title = "velocity deviation Nv")
+    ax[2,1].set(xlabel = "time", ylim = [0.0, 4.0], title = "velocity |v|")
 
     motion_indices = standstill_indices.flatten()[1:-1].reshape((-1, 2))
     for i in range(3):

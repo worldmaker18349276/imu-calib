@@ -324,27 +324,30 @@ def evaluate_states_separately(accs, gyrs, dt, g, standstill_indices, standstill
             ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j]
 
             # v[N] = sum[j in 0..N](dt[j] a[j])
-            # a[N] = U(0, N) acc[N]
+            # a[N] = U(0, N) acc[N] - g
             # Nv[N] = sum[j in 0..N](dt[j] Na[j])
             # Na[N] = U(0, N) Nacc[N] + ... + U(0, k) skew(Nw[k] dt) U(k, N) acc[N] + ...
-            #       = U(0, N) Nacc[N] + ... - skew(U(0, N) acc[N]) U(0, k) Nw[k]
+            #       = U(0, N) Nacc[N] + ... - skew(U(0, N) acc[N]) U(0, k) Nw[k] + ...
             # Nv[N] = sum[j in 0..N](dt[j] U(0, j) Nacc[j])
             #       - sum[j in 0..N](dt[j] skew(U(0, j) acc[j]) sum[k in 0..j](dt[k] U(0, k) Nw[k]))
             #       = sum[j in 0..N](dt[j] U(0, j) Nacc[j])
             #       - sum[k in 0..N](dt[k] V[k] U(0, k) Nw[k])
             # V[k] = sum[j in k..N](dt[j] skew(U(0, j) acc[j]))
             #      = skew(sum[j in k..N](dt[j] U(0, j) acc[j]))
-            #      = skew(v[N] - v[k])
+            #      = skew(sum[j in k..N](dt[j] (a[j] + g)))
+            #      = skew(v[N] - v[k] + g (t[N] - t[k]))
+            #      = skew(D(N, k))
+            # D(N, k) = v[N] - v[k] + g (t[N] - t[k])
             # Cov(Nv[N]) = sum[j in 0..N](dt[j] U(0, j) Cov(Na[j]) U(j, 0))
             #            + sum[k in 0..N](dt[k] V[k] U(0, k) Cov(Nw[k]) U(k, 0) V[k]^T)
             #            = (t[N] - t[0]) Na^2
-            #            - sum[k in 0..N](dt[k] skew(v[N] - v[k])^2) Nw^2
-            # tr(Cov(Nv[N])) = (t[N] - t[0]) 3 Na^2
-            #                + sum[k in 0..N](dt[k] |v[N] - v[k]|^2) 2 Nw^2
+            #            - sum[k in 0..N](dt[k] skew(D(N, k))^2) Nw^2
+            # tr(Cov(Nv[N])) = (t[N] - t[0]) 3 Na^2 + sum[k in 0..N](dt[k] |D(N, k)|^2) 2 Nw^2
 
+            D = vs[j+1:j+2, :] - vs[start:j+1, :] + acc_g[None, :] * np.cumsum(dt[start:j+1][::-1])[::-1, None]
             Nvs[j+1] = np.sqrt(
                 np.sum(dt[start:j+1]) * 3 * Na**2
-                + np.sum((vs[j+1:j+2, :] - vs[start:j+1, :])**2 * dt[start:j+1, None]) * 2 * Nw**2
+                + np.sum(D**2 * dt[start:j+1, None]) * 2 * Nw**2
             )
 
     return ps, qs, vs, Nvs
