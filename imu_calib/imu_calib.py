@@ -61,15 +61,10 @@ def make_residual_acc(accs, g, standstill_indices, Na):
     initial = np.concatenate([np.zeros((9,)), *standstill_up])
     return initial, residual_func, covariance_func
 
-def make_residual_gyr(gyrs, accs, dt, standstill_indices, Nw):
+def make_residual_gyr(gyrs, dt, standstill_indices, standstill_up, Nw):
     '''
     Gyroscope cost function according to equation (16) in the paper
     '''
-    standstill_up = []
-    for idxs in standstill_indices:
-        acc = np.mean(accs[idxs[0]:idxs[1], :], axis=0)
-        standstill_up.append(acc / np.linalg.norm(acc))
-
     motion_indices = standstill_indices.flatten()[1:-1].reshape((-1, 2))
 
     def residual_func(theta):
@@ -199,22 +194,25 @@ def calib_acc(accs, standstill_indices, g, Na=None):
                                  x_scale = [10., 10., 10., 10., 10., 10., 1., 1., 1., *[1.]*M],
                                  method='trf', loss='soft_l1',
                                  bounds = [
-                                       (-0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -1.1, -1.1, -1.1, *[-1.]*M),
-                                       (0.11,   0.11,  0.11,  0.11,  0.11,  0.11,  1.1,  1.1,  1.1,  *[1.]*M)],
+                                       (-0.11, -0.11, -0.11, -0.11, -0.11, -0.11, -1.1, -1.1, -1.1, *[-2.]*M),
+                                       ( 0.11,  0.11,  0.11,  0.11,  0.11,  0.11,  1.1,  1.1,  1.1, *[ 2.]*M)],
         )
 
     Sigma = covariance(res.x)
     cov = compute_covariance(residual, res.x, Sigma=Sigma)
-    return res.x[:9], cov[:9, :9]
+    theta = res.x[:9]
+    ups = res.x[9:].reshape((-1, 3))
+    ups = ups / np.linalg.norm(ups, axis=1, keepdims=True)
+    return theta, cov[:9, :9], ups
 
-def calib_gyr(gyrs, accs, dt, standstill_indices, Nw=None):
+def calib_gyr(gyrs, dt, standstill_indices, standstill_up, Nw=None):
     '''
     Find calibration parameters according to cost function from eq. (16)
     For details see make_residual_gyr function inside cost_functions.py
     '''
     if Nw is None:
         Nw = estimate_deviation(gyrs, standstill_indices)
-    initial, residual, covariance = make_residual_gyr(gyrs, accs, dt, standstill_indices, Nw)
+    initial, residual, covariance = make_residual_gyr(gyrs, dt, standstill_indices, standstill_up, Nw)
     res = optimize.least_squares(
             residual,
             initial, 
@@ -278,16 +276,13 @@ def evaluate_states(accs, gyrs, dt, g, first_standstill_start_index, first_stand
 
         R0 = Rmat(qs[j])
         R1 = Rmat(qs[j+1])
-        vs[j+1] = vs[j] + ((R0 @ accs[j] + R1 @ accs[j+1])/2 - acc_g) * dt[j]
-        ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j] + (R0 @ accs[j] - acc_g) * 0.5 * dt[j]**2
+        a = (R0 @ accs[j] + R1 @ accs[j+1])/2 - acc_g
+        vs[j+1] = vs[j] + a * dt[j]
+        ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j]
 
     return ps, qs, vs
 
-def evaluate_states_separately(accs, gyrs, dt, g, standstill_indices):
-    standstill_up = []
-    for idxs in standstill_indices:
-        standstill_up.append(np.mean(accs[idxs[0]:idxs[1], :], axis=0))
-
+def evaluate_states_separately(accs, gyrs, dt, g, standstill_indices, standstill_up):
     N = accs.shape[0]
 
     ps = np.zeros((N, 3))
@@ -318,7 +313,8 @@ def evaluate_states_separately(accs, gyrs, dt, g, standstill_indices):
 
             R0 = Rmat(qs[j])
             R1 = Rmat(qs[j+1])
-            vs[j+1] = vs[j] + ((R0 @ accs[j] + R1 @ accs[j+1])/2 - acc_g) * dt[j]
-            ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j] + (R0 @ accs[j] - acc_g) * 0.5 * dt[j]**2
+            a = (R0 @ accs[j] + R1 @ accs[j+1])/2 - acc_g
+            vs[j+1] = vs[j] + a * dt[j]
+            ps[j+1] = ps[j] + (vs[j] + vs[j+1])/2 * dt[j]
 
     return ps, qs, vs

@@ -40,7 +40,7 @@ def main():
 
     # find accelerometer calibration parameters and calibrate accel measurements
     time_start = time.time()
-    theta_acc, cov_theta_acc = imu_calib.calib_acc(accs, standstill_indices, g)
+    theta_acc, cov_theta_acc, standstill_up = imu_calib.calib_acc(accs, standstill_indices, g)
     time_end = time.time()
 
     print(f"ACC calibration done in: {time_end - time_start:.1f} s")
@@ -53,7 +53,7 @@ def main():
 
     # find gyroscope calibration parameters
     time_start = time.time()
-    theta_gyr, cov_theta_gyr = imu_calib.calib_gyr(gyrs, accs_calibrated, dt, standstill_indices)
+    theta_gyr, cov_theta_gyr = imu_calib.calib_gyr(gyrs, dt, standstill_indices, standstill_up)
     time_end = time.time()
 
     print(f"GYR calibration done in: {time_end - time_start:.1f} s")
@@ -68,8 +68,8 @@ def main():
 
     if args.verbose:
         print("reconstruct calibration states...")
-        p, q, v = imu_calib.evaluate_states_separately(accs, gyrs, dt, g, standstill_indices)
-        p_, q_, v_ = imu_calib.evaluate_states_separately(accs_calibrated, gyrs_calibrated, dt, g, standstill_indices)
+        p, q, v = imu_calib.evaluate_states_separately(accs, gyrs, dt, g, standstill_indices, standstill_up)
+        p_, q_, v_ = imu_calib.evaluate_states_separately(accs_calibrated, gyrs_calibrated, dt, g, standstill_indices, standstill_up)
         plot_utils.plot_state_before_and_after(p, q, v, p_, q_, v_, standstill_indices, times)
 
     calib_path = args.calib if args.calib is not None else Path(args.imu).with_suffix(".json")
